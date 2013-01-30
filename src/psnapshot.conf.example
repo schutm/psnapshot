@@ -1,0 +1,27 @@
+#
+# Configuration
+#
+cmd_cp          'cp'
+cmd_rm          'rm'
+cmd_rsync       'rsync'
+cmd_rsync_args  '-a --delete --numeric-ids --relative --delete-excluded'
+cmd_ssh         'ssh'
+cmd_ssh_args    ""
+
+loglevel        0
+backup_server   user@remote.backup.server
+snapshot_root   /remote/path/$HOSTNAME
+
+retain hourly   6
+retain daily    7
+retain weekly   4
+retain monthly  6
+
+# Skip hidden files and directories in the root
+#exclude	.*
+
+backup /etc/        /    -
+backup /home/       /    -
+backup /root/       /    -
+backup /var/log/    /    -
+backup /var/www/    /    -

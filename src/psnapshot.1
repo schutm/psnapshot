@@ -1,0 +1,365 @@
+.TH psnapshot "1" "November 2012" "wommm utils" "User Commands"
+.SH NAME
+psnapshot \- filesystem snapshot push backup utility
+.SH SYNOPSIS
+.B psnapshot
+.RB [\| \-c
+.IR configfile \|]
+.RB [\| \-htvV \|]
+.IR command
+.SH DESCRIPTION
+.B psnapshot
+is a filesystem snapshot push backup utility. It makes copies of the
+local filesystem to a remote server. It can take retain a configurable
+number of previous backups.
+.PP
+\fBpsnapshot\fR uses very little diskspace, due its use of hard links.
+Any file not changed since the previous backup will not take any
+additional diskspace. All copies will point to the same physical file.
+As a result, after the initial backup the required backup size will
+only marginally increase.
+.PP
+All of the above is accomplished by liberate use of widely available
+unix tools. In particular \fB\f(BIrsync\fB\|(1)\fR and
+\fB\f(BIssh\fB\|(1)\fR.
+.PP
+As \fBpsnapshot\fR is normally invoked from one or more cron jobs most
+configurations can be done using a configuration file. By default the
+configuration file is located at \fI/etc/psnapshot.conf\fR
+.SH OPTIONS
+.SS "General options"
+.TP
+.B \-c\  configfile
+Use this user configuration file rather than the default of
+\fI/etc/psnapshot.conf\fR.
+.TP
+.B \-t
+Test or dry-run. Mostly used in conjunection with -v.
+.TP
+.B \-v
+Become more verbose. Multiple entries will increase the verbosity.
+Currently at least 3 entries are required to get to any useable
+verbosity level.
+.SS "Getting help"
+.TP
+.B \-h
+Print a help message and exit.
+.TP
+.B \-V
+Display version information.
+.SH CONFIGURATION
+\fI/etc/psnapshot.conf\fR is the default configuration file. As
+specified above this is overwriteable on the commandline.
+.PP
+The list of allowed parameters is:
+.SS "Local commands"
+.TP
+.B cmd_rsync
+Full path to rsync on the local server (defaults to \fBrsync\fR).
+.TP
+.B cmd_rsync_args
+Additional arguments to pass to the \fBmv\fR command (defaults
+\fB-a --delete --numeric-ids --relative --delete-excluded\fR).
+.TP
+.B cmd_rsync_verbose_arg
+Argument to pass if \fBrsync\fR has to invoked in verbose mode
+(defaults to \fB--verbose\fR).
+.TP
+.B cmd_rsync_test_arg
+Argument to pass if \fBrsync\fR has to invoked in test mode
+(defaults to \fB--dry-run\fR).
+.TP
+.B cmd_ssh
+Full path to ssh on the local server (defaults to \fBssh\fR).
+.TP
+.B cmd_ssh_args
+Additional arguments to pass to the \fBssh\fR command (defaults to
+none).
+.SS "Remote commands"
+.TP
+.B cmd_cp
+Full path to cp on the remote server (defaults to \fBcp\fR).
+.TP
+.B cmd_cp_args
+Additional arguments to pass to the \fBcp\fR command (defaults to
+\fB-al\fR).
+.TP
+.B cmd_cp_verbose_arg
+Argument to pass if \fBcp\fR has to invoked in verbose mode (defaults
+to \fB--verbose\fR).
+.TP
+.B cmd_mkdir
+Full path to mkdir on the remote server (defaults to \fBmkdir\fR).
+.TP
+.B cmd_mkdir_args
+Additional arguments to pass to the \fBmkdir\fR command (defaults to
+\fB-f\fR).
+.TP
+.B cmd_mkdir_verbose_arg
+Argument to pass if \fBmkdir\fR has to invoked in verbose mode
+(defaults to \fB--verbose\fR).
+.TP
+.B cmd_mv
+Full path to mv on the remote server (defaults to \fBmv\fR).
+.TP
+.B cmd_mv_args
+Additional arguments to pass to the \fBmv\fR command (defaults to
+none).
+.TP
+.B cmd_mv_verbose_arg
+Argument to pass if \fBmv\fR has to invoked in verbose mode (defaults
+to \fB--verbose\fR).
+.TP
+.B cmd_rm
+Full path to rm on the remote server (defaults to \fBrm\fR).
+.TP
+.B cmd_rm_args
+Additional arguments to pass to the \fBrm\fR command (defaults to
+\fB-rf\fR).
+.TP
+.B cmd_rm_verbose_arg
+Argument to pass if \fBrm\fR has to invoked in verbose mode (defaults
+to \fB--verbose\fR).
+.TP
+.B cmd_touch
+Full path to touch on the remote server (defaults to \fBtouch\fR).
+.SS Backup server
+.TP
+.B backup_server
+The backup server to push the backups to.
+.TP
+.B snapshot_root
+Path on the remote filesystem to save all snapshots (defaults to
+\fB./$HOSTNAME\fR).
+.SS Backup
+.TP
+.B backup\  [src]     [dest]     [arguments]
+Create a snapshot of \fB<src>\fR in the destionation directory
+\fB<snapshot_root>/ <retain>.<history>/<dest>\fR on the remote server
+\fBbackup-server\fR passing additional \fBarguments\fR to
+\fIrsync\fR\|(1).
+.PP
+.RS
+Please note all arguments all have to be present at all times. If one
+doesn't want to pass extra arguments to rsync than \fBarguments\fR
+should be set to \fB-\fR (a dash).
+.RE
+.TP
+.B exclude\  [pattern]
+This gets passed directly to rsync using the \-\-exclude directive.
+This parameter can be specified as many times as needed, with one
+pattern defined per line. See the \fIrsync\fR\|(1) man page for the
+syntax.
+.TP
+.B include\  [pattern]
+This gets passed directly to rsync using the \-\-include directive.
+This parameter can be specified as many times as needed, with one
+pattern defined per line. See the \fIrsync\fR\|(1) man page for the
+syntax.
+.TP
+.B retain\  [name]	[number]
+\fBname\fR refers to the name of the snapshot level (e.g. daily,
+weekly).
+number\fR is the number of snapshots that will be retained for the
+snapshot level. The value of \fBname\fR is the command passed to
+\fBpsnapshot\fR.
+
+.RS
+Example: \fBretain hourly 6\fR
+.br
+[root@localhost]# \fBrsnapshot hourly\fR
+
+.nr step 1 1
+For this example, every time this is run, the following will happen:
+.RS
+.IP \n[step] 4
+<snapshot_root>/hourly.5/ will be deleted, if it exists.
+.IP \n+[step]
+<snapshot_root>/hourly.{0,1,2,3,4} will all be rotated +1, if they
+exist.
+.IP \n+[step]
+<snapshot_root>/hourly.1/ will be copied to <snapshot_root>/hourly.0/
+using hard links.
+.IP \n+[step]
+Each backup point (explained below) will then be rsynced to the
+corresponding directories in <snapshot_root>/hourly.0/
+.RE
+.RE
+.IP
+Retention levels must be specified in order in the configuration file,
+from most frequently invoked to least frequently invoked. The first
+retention level will be synchronized, the other levels will rotate.
+.PP
+.RS
+Example:
+.RS
+\fBretain  hourly 6\fR
+.br
+\fBretain  daily  7\fR
+.br
+\fBretain  weekly 4\fR
+.PP
+daily.0/ will be copied from hourly.5/, and weekly.0/ will be copied
+from daily.6/ hourly.0/ will be rsynced directly from the filesystem.
+.RE
+.SS "Miscellanious commands"
+.TP
+.B loglevel\  [level]
+Indicates the amount of information to be printed. Allowed values are 0
+through 5, the default level is 0.
+.RS
+.nr step 0 1
+.IP \n[step] 4
+Errors only       Show fatal errors only
+.IP \n+[step]
+Warnings          Show warning and errors
+.IP \n+[step]
+Info              Show the intention of the command given
+.IP \n+[step]
+Message           Show the actions to be taken
+.IP \n+[step]
+Debug             Show the shell commands to be executed
+.RE
+.TP
+.B # (hash mark)
+A hash mark is treated as a comment.
+.SH EXAMPLE CONFIGURATION FILE
+#
+.br
+# Configuration
+.br
+#
+.PP
+cmd_cp          '/bin/cp'
+.br
+cmd_rm          '/bin/rm'
+.br
+cmd_rsync       '/usr/bin/rsync'
+.br
+cmd_rsync_args  '-a --delete --numeric-ids --relative --delete-excluded'
+.br
+cmd_ssh         '/usr/bin/dbclient'
+.br
+cmd_ssh_args    "-i $HOME/.ssh/dbkey.rsa"
+.PP
+loglevel                3
+.PP
+backup_server           psnapshot@example.com
+.br
+snapshot_root           ./snapshots/$HOSTNAME
+.PP
+retain hourly           6
+.br
+retain daily            7
+.br
+retain weekly           4
+.br
+retain monthly          6
+.PP
+# Skip hidden files and directories in the root
+.br
+exclude .*
+.PP
+backup /etc/            /               -
+.br
+backup /home/           /               -
+.br
+backup /root/           /               -
+.br
+backup /var/log/        /               -
+.br
+backup /var/www/        /               -
+.br
+.SH USAGE
+Any user should use a backup utility, either \fBpsnapshot\fR or
+another, for personal backups. \fBpsnapshot\fR can be used for
+personal backups and can be used by any user. However for
+system-wide snapshots it needs to be run as root.
+.PP
+Since human nature is to neglect repeating tasks, and especially
+backups, it is preferred to run \fBpsnapshot\fR from
+\fIcron\fR\|(1).
+.PP
+An example crontab entry, assuming a configuration as setup in the
+example configuration section above:
+.PP
+0 */4 * * *         /usr/local/bin/psnapshot hourly
+.br
+50 23 * * *         /usr/local/bin/psnapshot daily
+.br
+40 23 * * 6         /usr/local/bin/rsnapshot weekly
+.br
+30 23 1 * *         /usr/local/bin/rsnapshot monthly
+.PP
+.RS
+This example will do the following:
+.IP \[bu] 4
+6 hourly backups a day (once every 4 hours, at 0,4,8,12,16,20)
+.IP \[bu]
+1 daily backup every day, at 11:50PM
+.IP \[bu]
+1 weekly backup every week, at 11:40PM, on Saturdays (6th day of week)
+.IP \[bu]
+1 monthly backup every month, at 11:30PM on the 1st day of the month
+.RE
+The entries in the crontab juse defines the times that \fBpsnapshot\fR
+is run. The numbers of snapshots to be stored is set using the
+\fBretain\fR number in \fI/etc/psnapshot.conf\fR.
+.PP
+Notice also that larger retention periods will run a bit before the
+lower ones. This is to ensure the different jobs do not overlap with
+an unexpected result.
+.SH EXIT VALUES
+Whoops, these are undefined at the moment...
+.SH "FILES"
+/etc/psnapshot.conf
+.SH SEE ALSO
+\fIrsync\fR\|(1), \fIssh\fR\|(1), \fIsshd\fR\|(1),
+\fIssh\-keygen\fR\|(1), \fIcp\fR\|(1), \fIcrontab\fR\|(1)
+.SH DIAGNOSTICS
+Please, before running a modified configuration use the \fB\-t\fR flag
+in conjunction with several \fB-v\fR flags to see what commands would
+have been executed.
+.SH BUGS
+Probably several bugs are existing. The configuration file is not
+checked for consistency.
+.PP
+Please report bugs (and other comments) to:
+\&\fBpsnapshot@wommm.nl\fR
+.PP
+Bugs will be solved in roughly the following order: bugs with a patch
+attached to solve the issue, bugs which effect my own snapshots, bugs
+with a bug description, bugs without description.
+.SH AUTHOR
+Written by Martin Schut (\fBmartin-psnapshot@wommm.nl\fR).
+.SH RELATED
+Mike Rubel (\fBhttp://www.mikerubel.org/computers/rsync_snapshots/\fR)
+.IP "\- Created the original shell scripts of which this project got
+the idea" 4
+.PP
+Nathan Rosenquist (\fBnathan@rsnapshot.org\fR),
+David Cantrell (\fBdavid@cantrell.org.uk\fR),
+David Keegel <\fBdjk@cybersource.com.au\fR>
+.IP "\- (Previous) authors and maintainers of \fBrsnapshot\fR which
+this project got the idea." 4
+.SH COPYRIGHT
+This man page is distributed under the same license as psnapshot:
+the \fBISC License\fR (see below).
+.PP
+Copyright (C) 2013, Martin Schut
+.br
+All rights reserved.
+.PP
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted, provided that the
+above copyright notice and this permission notice appear in all
+copies.
+.PP
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR
+BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+SOFTWARE.

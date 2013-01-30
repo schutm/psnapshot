@@ -1,0 +1,425 @@
+#!/bin/bash
+
+# TODO: Add error handling if errors are made in config
+
+VERSION=0.0.7
+
+set -o errexit -o nounset
+
+_date=`date +%Y%m%d%H%M.%S`
+
+_configfile=/etc/psnapshot.conf
+_backup_server=
+_snapshot_root=$HOSTNAME
+_test=0
+_verbosity=0
+
+_retain=()
+_backup=()
+_include=()
+_exclude=()
+
+_cp='cp'
+_mkdir='mkdir'
+_mv='mv'
+_rm='rm'
+_rsync='rsync'
+_ssh='ssh'
+_touch='touch'
+
+_cp_args='-al'
+_cp_verbose_arg='--verbose'
+_mkdir_args='-p -m 755'
+_mkdir_verbose_arg='--verbose'
+_mv_args='-T'
+_mv_verbose_arg='--verbose'
+_rm_args='-rf'
+_rm_verbose_arg='--verbose'
+_rsync_args='-a --delete --numeric-ids --relative --delete-excluded'
+_rsync_verbose_arg='--verbose'
+_rsync_test_arg='--dry-run'
+_ssh_args=''
+
+function cmd_cp {
+    _cp=$1
+}
+
+function cmd_cp_args {
+    _cp_args=$1
+}
+
+function cmd_cp_verbose_arg {
+    _cp_verbose_arg=$1
+}
+
+function cmd_rm {
+    _rm=$1
+}
+
+function cmd_rm_args {
+    _rm_args=$1
+}
+
+function cmd_rm_verbose_arg {
+    _rm_verbose_arg=$1
+}
+
+function cmd_mkdir {
+    _mkdir=$1
+}
+
+function cmd_mkdir_args {
+    _mkdir_args=$1
+}
+
+function cmd_mv {
+    _mv=$1
+}
+
+function cmd_mv_args {
+    _mv_args=$1
+}
+
+function cmd_mv_verbose_arg {
+    _mv_verbose_arg=$1
+}
+
+function cmd_rsync {
+    _rsync=$1
+}
+
+function cmd_rsync_args {
+    _rsync_args=$1
+}
+
+function cmd_rsync_verbose_arg {
+    _rsync_verbose_arg=$1
+}
+
+function cmd_rsync_test_arg {
+    _rsync_test_arg=$1
+}
+
+function cmd_ssh {
+    _ssh=$1
+}
+
+function cmd_ssh_args {
+    _ssh_args=$1
+}
+
+function cmd_touch {
+    _touch=$1
+}
+
+function backup_server {
+    _backup_server=$1
+}
+
+function loglevel {
+    _loglevel=$1
+}
+
+function snapshot_root {
+    _snapshot_root=$1
+}
+
+function backup {
+    local src=$1
+    local dest=$2
+    local options=${3:-'-'}
+    _backup=( ${_backup[@]-} $src $dest $options )
+}
+
+function include {
+    _include+=($1)
+}
+
+function exclude {
+    _exclude+=($1)
+}
+
+function retain {
+    _retain=( ${_retain[@]-} $1 $2 )
+}
+
+function do_log {
+    if (($1 <= $_verbosity)); then
+        return 0;
+    else
+        return 1;
+    fi
+}
+
+function log {
+    if do_log $1; then
+        echo "$2"
+    fi
+}
+
+function info {
+    log 2 "$1"
+}
+
+function message {
+    log 3 "  $1"
+}
+
+function debug {
+    log 4 "    $1"
+}
+
+function bail {
+    echo $1
+    exit 1
+}
+
+function retention {
+    echo ${_retain[$1]}
+}
+
+function history {
+    echo ${_retain[${1}+1]}
+}
+
+function retention_index {
+    local cnt=${#_retain[@]}
+    for (( i = 0 ; i < cnt ; i=i+2 )); do
+        if [ "${_retain[$i]}" = $1 ]; then
+            echo "$i"
+            return
+        fi
+    done
+
+    echo "-1"
+}
+
+function show_version {
+    echo "`basename $0` $VERSION"
+}
+
+function show_usage {
+    echo "Usage: `basename $0` [-c configfile] [-htvV] command";
+}
+
+function show_help {
+    local name=`basename $0`
+
+    show_version
+    show_usage
+
+    echo
+    echo "psnapshot is a filesystem snapshot utility. It can take incremental"
+    echo "snapshots of local filesystems to remote machines"
+    echo
+    echo "psnapshot comes with ABSOLUTELY NO WARRANTY.  This is free software,"
+    echo "and you are welcome to redistribute it under certain conditions."
+    echo "See the ISC License for details."
+    echo
+    echo "Options:"
+    echo "    -c [file]  - Specify alternate config file (-c /path/to/file)."
+    echo "    -h help    - Display this help".
+    echo "    -v verbose - Increase verbosity level (maybe repeated)".
+    echo "    -V version - Display the version."
+    echo "    -t test    - Dry run."
+    echo
+    echo "Command:"
+    echo "    retention  - Retention level as defined in the config file."
+}
+
+function show_commands {
+    local cnt=${#_retain[@]}
+
+    show_usage
+
+    echo
+    echo "Available commands:"
+    for (( i = 0 ; i < cnt ; i=i+2 )); do
+        echo "    ${_retain[$i]}"
+    done
+}
+
+function verbose {
+    log 4 "$1"
+}
+
+function enable_test {
+    if [[ $_test = 1 ]]; then
+        echo "$1"
+    fi
+}
+
+function flag_args {
+    local prefix=$1
+    shift 1
+    for arg in $@; do
+        echo "${prefix}${arg}"
+    done
+}
+
+function args {
+    if [[ "${1-}" != "-" ]]; then
+        for arg in ${1-}; do
+            echo "$arg"
+        done
+    fi
+}
+
+function enable_command_log {
+    if ((5 <= $_verbosity)); then
+        set -x
+    fi
+}
+
+function rexecute {
+    debug "Remotely execute: $1"
+    if [[ $_test = 0 ]]; then
+        local cmd=($_ssh)
+        cmd+=($(args "${_ssh_args}"))
+        cmd+=("${_backup_server}" "$@")
+        if [ -e "/dev/pts/ptmx" -a -c "/dev/pts/ptmx"  ]; then
+            ( enable_command_log; "${cmd[@]}" < /dev/pts/ptmx )
+        else
+            ( enable_command_log; "${cmd[@]}" )
+        fi
+    fi
+}
+
+function lexecute {
+    local force=0
+    if [[ -n "$1" && "$1" = "--force" ]]; then
+        force=1
+        shift 1
+    fi
+
+    debug "Locally execute: $*"
+    if [[ $_test = 0 || $force=1 ]]; then
+        ( enable_command_log; "$@" )
+    fi
+}
+
+function rmkdir {
+    local args="${_mkdir_args} $(verbose "$_mkdir_verbose_arg")"
+
+    message "Make directory '$1'"
+    rexecute "if [[ ! -e \"$1\" ]]; then $_mkdir $args \"$1\"; else echo \"$(verbose "'$1' already exist")\"; fi"
+}
+
+function rremove {
+    local args="${_rm_args} $(verbose "$_rm_verbose_arg")"
+
+    message "Remove '$1'"
+    rexecute "if [[ -e \"$1\" ]]; then $_rm $args \"$1\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+}
+
+function rrename {
+    local args="${_mv_args} $(verbose "$_mv_verbose_arg")"
+
+    message "Rename '$1' to '$2'"
+    rexecute "if [[ -e \"$1\" ]]; then $_mv $args \"$1\" \"$2\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+}
+
+function rtouch {
+    message "Set date of '$1' to '$2'"
+    rexecute "if [[ -e \"$1\" ]]; then $_touch \"$1\" -t \"$2\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+}
+
+function rcopy {
+    local args="${_cp_args} $(verbose "$_cp_verbose_arg")"
+
+    message "Copy '$1' to '$2'"
+    rexecute "if [[ -e \"$1\" ]]; then $_cp $args \"$1\" \"$2\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+}
+
+function synch {
+    local extra_args="$(args "$3")"
+    local opts=(--rsh="$_ssh $_ssh_args")
+    opts+=($(args "${_rsync_args}"))
+    opts+=($(args $(verbose "${_rsync_verbose_arg}")))
+    opts+=($(args $(enable_test "$_rsync_test_arg")))
+    opts+=($(flag_args "--include=" "${_include[@]-}"))
+    opts+=($(flag_args "--exclude=" "${_exclude[@]-}"))
+    opts+=($(args "$3"))
+    opts+=($1 $2)
+
+    message "Synchronize '$1' to '$2' $(test -z "$extra_args" || echo "using extra arguments '$extra_args'")"
+    lexecute --force "$_rsync" "${opts[@]}"
+}
+
+function rotate {
+    local retention=$1
+    local history=$(($2 - 1))
+
+    rremove "${_snapshot_root}/${retention}.${history}"
+    for (( i = $((history - 1)); i >= 0; i-- )); do
+        rrename "${_snapshot_root}/${retention}.${i}" "${_snapshot_root}/${retention}.$((i + 1))"
+    done
+}
+
+function propagate {
+    local retention=$(retention $1)
+    local prev_retention=$(retention $1-2)
+    local history=$(history $1-2)
+
+    rrename "${_snapshot_root}/${prev_retention}.$((history - 1))" "${_snapshot_root}/${retention}.0"
+}
+
+function snapshot {
+    local retention=$1
+    rcopy "${_snapshot_root}/${retention}.1" "${_snapshot_root}/${retention}.0"
+    rmkdir "${_snapshot_root}/${retention}.0"
+
+    local backups=${#_backup[@]}
+    for (( i = 0 ; i < backups ; i=i+3 )); do
+        synch "${_backup[$i]}" "${_backup_server}:${_snapshot_root}/${retention}.0${_backup[$i+1]}" "${_backup[$i+2]}"
+    done
+
+    rtouch "${_snapshot_root}/${retention}.0" "${_date}"
+}
+
+#
+# Start main
+#
+set -f
+
+while getopts ":c:htvV" opt; do
+    case "$opt" in
+        "c") _configfile=$OPTARG;;
+        "h") show_help; exit 0;;
+        "t") _test=1;;
+        "v") _verbosity=$(($_verbosity + 1));;
+        "V") show_version; exit 0;;
+        "?") bail "Unknown option $OPTARG";;
+        ":") bail "No argument value for option $OPTARG";;
+        *)   bail "Unknown error while processing options";;
+    esac
+done
+
+shift $((OPTIND-1))
+if (($# != 1)); then
+    show_usage
+    exit 1;
+fi
+
+source $_configfile
+
+_command=$1
+_retention_index=$(retention_index ${_command});
+
+if [[ ${_retention_index} < 0 ]]; then
+    show_commands
+    exit 1;
+fi
+
+_retention=$(retention $_retention_index)
+_history=$(history $_retention_index)
+
+info "Taking '${_retention}' snapshot"
+rotate ${_retention} ${_history}
+if [[ $_retention_index = 0 ]]; then
+    snapshot $_retention
+else
+    propagate $_retention_index
+fi
+
+set +f
