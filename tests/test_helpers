@@ -1,0 +1,37 @@
+#!/bin/sh
+
+# Assert if a function bails if an incorrect number of arguments is given.
+#
+# Args:
+#   fn: string: The function to execute.
+#   min: integer: Number of arguments to test with.
+# Returns:
+#   not specified.
+assertBail() {
+    fn=$1
+    args="$(seq -s ' arg' 1 $2)"
+
+    assertFalse "Check if $fn() bails when passed $2 argument(s)" \
+        "$fn ${args:+arg}$args"
+
+    unset fn args
+}
+
+# Assert setter functions
+# value.
+#
+# Args:
+#   fn: string: The setter function to test.
+# Returns:
+#   not specified.
+assertSet() {
+    fn=$1
+
+    assertEquals "Setter for $fn echos no value" \
+        "" "$($fn "new")"
+
+    assertEquals "_$fn is set" \
+        "new" "$($fn "new" && eval "printf "%s" "\${_$fn}"")"
+
+    unset fn
+}

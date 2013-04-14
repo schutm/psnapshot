@@ -10,7 +10,7 @@ cmd_ssh_args    ""
 
 loglevel        0
 backup_server   user@remote.backup.server
-snapshot_root   /remote/path/$HOSTNAME
+snapshot_root   /remote/path/$(hostname)
 
 retain hourly   6
 retain daily    7
@@ -20,8 +20,8 @@ retain monthly  6
 # Skip hidden files and directories in the root
 #exclude	.*
 
-backup /etc/        /    -
-backup /home/       /    -
-backup /root/       /    -
-backup /var/log/    /    -
-backup /var/www/    /    -
+backup /etc/        /
+backup /home/       /
+backup /root/       /
+backup /var/log/    /
+backup /var/www/    /

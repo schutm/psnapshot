@@ -1,210 +1,348 @@
-#!/bin/bash
+#!/bin/sh
 
-# TODO: Add error handling if errors are made in config
+set -o nounset
+set -f
 
-VERSION=0.0.7
+PSNAPSHOT_VERSION=0.9.0
 
-set -o errexit -o nounset
+PSNAPSHOT_FALSE=1
+PSNAPSHOT_TRUE=0
 
-_date=`date +%Y%m%d%H%M.%S`
+PSNAPSHOT_BAIL=1
+PSNAPSHOT_SUCCESS=0
 
-_configfile=/etc/psnapshot.conf
-_backup_server=
-_snapshot_root=$HOSTNAME
-_test=0
-_verbosity=0
-
-_retain=()
-_backup=()
-_include=()
-_exclude=()
-
-_cp='cp'
-_mkdir='mkdir'
-_mv='mv'
-_rm='rm'
-_rsync='rsync'
-_ssh='ssh'
-_touch='touch'
-
-_cp_args='-al'
-_cp_verbose_arg='--verbose'
-_mkdir_args='-p -m 755'
-_mkdir_verbose_arg='--verbose'
-_mv_args='-T'
-_mv_verbose_arg='--verbose'
-_rm_args='-rf'
-_rm_verbose_arg='--verbose'
-_rsync_args='-a --delete --numeric-ids --relative --delete-excluded'
-_rsync_verbose_arg='--verbose'
-_rsync_test_arg='--dry-run'
-_ssh_args=''
-
-function cmd_cp {
-    _cp=$1
+# Bails out after printing an error message.
+#
+# Args:
+#   message: string: Message to print before bailing out. [optional]
+#   any additional arguments are ignored. There is no logic in bailing
+#   if the invocation of bail() is incorrect.
+# Returns:
+#   Never returns.
+bail() {
+    printf "${1-Error occurred, bailing out}\n" >&2
+    exit $PSNAPSHOT_BAIL
 }
 
-function cmd_cp_args {
-    _cp_args=$1
+# Quits the script with a success code.
+#
+# Args:
+#   None.
+# Returns:
+#   Never returns.
+quit() {
+    exit $PSNAPSHOT_SUCCESS
 }
 
-function cmd_cp_verbose_arg {
-    _cp_verbose_arg=$1
+# Checks if a value exsists in a list.
+#
+# Args:
+#   needle: string/integer: The searched value.
+#   haystack: string/integer: The list to search in. [optional]
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+# Bails:
+#   Unexpected number of arguments.
+in_list() {
+    [ $# -ge 1 ] || \
+        bail "in_list expects at least 1 arguments; $# given"
+
+    needle=$1
+    shift
+
+    for x in $@; do
+        if [ $needle -eq $x ]; then
+            unset x needle
+            return $PSNAPSHOT_TRUE
+        fi
+    done
+
+    unset x needle
+    return $PSNAPSHOT_FALSE
 }
 
-function cmd_rm {
-    _rm=$1
+# Create a scalar keyword for the Domain Specific Language. <keyword>
+# setter is created. The value is stored in _<keyword>. The newly created
+# function can be with 1 argument to set the new value.
+#
+# Args:
+#   keyword: string: Keyword used in the DSL.
+#   value: string/integer: The default value to return.
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+# Bails:
+#   Unexpected number of arguments.
+# Side effects:
+#   Variable _<keyword> is set.
+#   Function <keyword> is defined.
+create_scalar_dsl() {
+    [ $# -eq 2 ] || \
+        bail "create_scalar_dsl expects 2 arguments; $# given"
+
+    eval "_$1=\"$2\";                                             \
+           $1() {                                                  \
+               [ \$# -eq 1 ] ||                                    \
+                   bail \"$1 expects 1 argument; \$# given\";      \
+                                                                   \
+               _$1=\"\$1\";                                        \
+           }"
 }
 
-function cmd_rm_args {
-    _rm_args=$1
+# Create the 'cmd' keywords for the Domain Specific Language.
+# cmd_<keyword>, cmd_<keyword>_args and cmd_<keyword>verbose_arg setters
+# are created. The values are stored in _cmd_<keyword>, _cmd_<keyword>_args
+# and _cmd_<keyword>verbose_arg. The newly created functions can be invoked
+# with 1 argument to set the new value.
+#
+# Args:
+#   keyword: string: Keyword used in the DSL.
+#   command: string: Shell command to invoke. cmd_<keyword> function
+#   args: string: Arguments to use. cmd_<keyword>_args function. [optional]
+#   verbose_arg: string: Argument to use to enable commands verbose mode
+#                        cmd_<keyword>_verbose_arg function. [optional]
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+# Bails:
+#   Unexpected number of arguments.
+# Side effects:
+#   Variables _<keyword>, _<keyword>_args and _<keyword>_verbose_arg are
+#   set.
+#   Functions cmd_<keyword>, cmd_<keyword>_args and
+#   cmd_<keyword>_verbose_arg are defined.
+create_cmd_dsl() {
+    [ $# -ge 2 ] && [ $# -le 4 ] || \
+        bail "create_cmd_dsl expects 2 to 4 arguments; $# given"
+
+    # Get the dsl name.
+    cmd_dsl=${1-}
+    shift
+
+    # Create the cmd_<cmd>, cmd_<cmd>_args and cmd_<cmd>verbose_arg
+    # getters and setters.
+    for postfix in '' args verbose_arg; do
+        cmd=_${cmd_dsl}${postfix:+_$postfix}
+        create_scalar_dsl "cmd${cmd}" "${1-}"
+        shift
+    done
+
+    unset cmd postfix cmd_dsl
 }
 
-function cmd_rm_verbose_arg {
-    _rm_verbose_arg=$1
+# Create an array keyword for the Domain Specific Language. <keyword>
+# setter is created. The array is stored in _<keyword>. The newly created
+# function can be invoked with the specified number of arguments to add
+# to the array. Missing arguments will be added empty ('').
+#
+# Args:
+#   keyword: string: Keyword used in the DSL.
+#   args: integer[s]: The accepted number of arguments given at once.
+#                     These should be order ascending.
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+# Bails:
+#   Unexpected number of arguments.
+# Side effects:
+#   Variable _<keyword> is set.
+#   Function <keyword> is defined.
+create_array_dsl() {
+    [ $# -ge 2 ] || \
+        bail "create_array_dsl expects at least 2 arguments; $# given"
+
+    fn=$1
+    shift
+    args=$(eval "echo \$$#")
+    eval "$fn() {               \
+               in_list \$# $@ || {                                     \
+                   args=\"\$#\";                                       \
+                   set -- $@;                                          \
+                   msg=\"$fn expects \";                               \
+                   while [ \$# -gt 1 ]; do                             \
+                       case \$# in                                     \
+                           2) msg=\"\$msg\$1 or \";;                   \
+                           *) msg=\"\$msg\$1, \";;                     \
+                       esac;                                           \
+                       shift;                                          \
+                   done;                                               \
+                   msg=\"\$msg\$1 argument(s); \$args given.\";        \
+                   bail \"\$msg\";                                     \
+               };                                                      \
+               for item; do                                            \
+                   [ -z \"\${_$fn:++}\" ] || _$fn=\"\${_$fn} \";       \
+                   while ipart=\${item%%\\'*}; do                      \
+                       if case \${ipart} in                            \
+                           *[!-+=~/:.0-9_a-zA-Z]*) false;;             \
+                       esac then _$fn=\${_$fn:-}\${ipart};             \
+                       else _$fn=\"\${_$fn:-}'\${ipart}'\";            \
+                       fi;                                             \
+                       [ \"\${item}\" = \"\${ipart}\" ] && break;      \
+                       _$fn=\"\${_$fn:-}\\\\'\";                       \
+                       item=\${item#*\\'};                             \
+                   done;                                               \
+               done;                                                   \
+               i=\$#;                                                  \
+               while [ \$i -lt $args ]; do                             \
+                   _$fn=\"\${_$fn:-} ''\";                             \
+                   i=\$((\$i + 1));                                    \
+               done;                                                   \
+               unset item ipart i;                                    \
+           }"
+    unset fn args
 }
 
-function cmd_mkdir {
-    _mkdir=$1
-}
 
-function cmd_mkdir_args {
-    _mkdir_args=$1
-}
+# Create DSL and default configuration
+######################################
+#              keyword  cmd      args         verbose_arg
+create_cmd_dsl 'cp'     'cp'     '-al'        '--verbose'
+create_cmd_dsl 'mv'     'mv'     '-T'         '--verbose'
+create_cmd_dsl 'rm'     'rm'     '-rf'        '--verbose'
+create_cmd_dsl 'mkdir'  'mkdir'  '-p -m 755'  '--verbose'
+create_cmd_dsl 'rsync'  'rsync'  '-a --delete --numeric-ids --relative --delete-excluded' \
+                                              '--verbose'
+create_cmd_dsl 'date'   'date'   '-Iseconds'  ''
+create_cmd_dsl 'touch'  'touch'  ''           ''
+create_cmd_dsl 'ssh'    'ssh'    ''           '--verbose'
 
-function cmd_mv {
-    _mv=$1
-}
+#                 keyword               default
+create_scalar_dsl 'cmd_rsync_test_arg'  '--dry-run'
+create_scalar_dsl 'backup_server'       ''
+create_scalar_dsl 'snapshot_root'       "$(hostname)"
+create_scalar_dsl 'loglevel'            0
 
-function cmd_mv_args {
-    _mv_args=$1
-}
+#                 keyword     accepted # of args
+create_array_dsl  'include'   1
+create_array_dsl  'exclude'   1
+create_array_dsl  'retain'    2
+create_array_dsl  'backup'    2 3
 
-function cmd_mv_verbose_arg {
-    _mv_verbose_arg=$1
-}
+# psnapshot script variables
+############################
+_command=
+_configfile="/etc/psnapshot.conf"
+_help=$PSNAPSHOT_FALSE
+_test=$PSNAPSHOT_FALSE
+_verbose=0
+_version=$PSNAPSHOT_FALSE
 
-function cmd_rsync {
-    _rsync=$1
-}
+# Parse the passed argument list.
+#
+# Args:
+#   args: array of strings: The arguments to parse.
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+# Side effects:
+#   Sets _command, _configfile, _help, _test, _verbose and _version.
+parse_args() {
+    while [ $# -gt 0 ]; do
+	case "$1" in
+	    --) shift; break;;
+	    -c) if [ $# -eq 1 ] || [ "$2" = "--" ]; then
+	            echo "No argument value for option -c"
+		    return $PSNAPSHOT_FALSE
+		else
+		    _configfile="$2"
+		    shift 2
+		fi;;
+	    -*) case "$1" in
+	             -h*) _help=$PSNAPSHOT_TRUE;;
+		     -t*) _test=$PSNAPSHOT_TRUE;;
+                     -v*) _verbose=$(( $_verbose + 1 ));;
+                     -V*) _version=$PSNAPSHOT_TRUE;;
+	              -*) echo "Unknown option '-$(expr $1 : -\\\(.\\\))' while processing options"
+		          return $PSNAPSHOT_FALSE;;
+		esac
+		opt=$(expr $1 : -.\\\(.*\\\))
+                shift
+	        set -- ${opt:+-$opt} $@
+	        unset opt;;
+	    *) break;;
+        esac
+    done
 
-function cmd_rsync_args {
-    _rsync_args=$1
-}
-
-function cmd_rsync_verbose_arg {
-    _rsync_verbose_arg=$1
-}
-
-function cmd_rsync_test_arg {
-    _rsync_test_arg=$1
-}
-
-function cmd_ssh {
-    _ssh=$1
-}
-
-function cmd_ssh_args {
-    _ssh_args=$1
-}
-
-function cmd_touch {
-    _touch=$1
-}
-
-function backup_server {
-    _backup_server=$1
-}
-
-function loglevel {
-    _loglevel=$1
-}
-
-function snapshot_root {
-    _snapshot_root=$1
-}
-
-function backup {
-    local src=$1
-    local dest=$2
-    local options=${3:-'-'}
-    _backup=( ${_backup[@]-} $src $dest $options )
-}
-
-function include {
-    _include+=($1)
-}
-
-function exclude {
-    _exclude+=($1)
-}
-
-function retain {
-    _retain=( ${_retain[@]-} $1 $2 )
-}
-
-function do_log {
-    if (($1 <= $_verbosity)); then
-        return 0;
-    else
-        return 1;
+    if [ $# -gt 1 ]; then
+        echo "To many commands given"
+	return $PSNAPSHOT_FALSE
     fi
+    
+    _command=${1:-}
+    return $PSNAPSHOT_TRUE
 }
 
-function log {
-    if do_log $1; then
+
+# Parse args & load configuration if we're not unit-testing
+###########################################################
+if [ -z ${SHUNIT_VERSION:-} ]; then
+    error=eval parse_args $@
+    [ $? -eq $PSNAPSHOT_TRUE ] || bail "$error"
+    unset error
+
+    # These functions should not be available in the configuration
+    unset -f create_cmd_dsl create_scalar_dsl create_array_dsl parse_args
+
+    # Version function do not need the configuration
+    if [ $_version = $PSNAPSHOT_FALSE ]; then
+        . $_configfile
+    fi
+fi
+
+
+# Echos a message if the passed level is lower than the log level.
+#
+# Args:
+#   level: integer: Log level to log the message with.
+#   message: string: The message to log.
+log() {
+    if [ $1 -le $_loglevel ]; then 
         echo "$2"
     fi
 }
 
-function info {
-    log 2 "$1"
+# Convenience functions to log a message with a certain level.
+#
+# Args:
+#   message: string: The message to log.
+error()   { echo "$1" >&2;  }
+info()    { log 1 "$1";	    }
+message() { log 2 "  $1";   }
+verbose() { log 3 "$1";     }
+debug()   { log 4 "    $1"; }
+
+
+# Show the version of the script.
+#
+# Args:
+#   None
+show_version() {
+    echo "$(basename $0) $PSNAPSHOT_VERSION"
 }
 
-function message {
-    log 3 "  $1"
+# Show the short usage string.
+#
+# Args:
+#   None
+show_usage() {
+    echo "Usage: $(basename $0) [-c configfile] [-htvV] command";
 }
 
-function debug {
-    log 4 "    $1"
-}
-
-function bail {
-    echo $1
-    exit 1
-}
-
-function retention {
-    echo ${_retain[$1]}
-}
-
-function history {
-    echo ${_retain[${1}+1]}
-}
-
-function retention_index {
-    local cnt=${#_retain[@]}
-    for (( i = 0 ; i < cnt ; i=i+2 )); do
-        if [ "${_retain[$i]}" = $1 ]; then
-            echo "$i"
-            return
-        fi
+# Show the commands as inserted by the configuration.
+#
+# Args:
+#   None
+show_commands() {
+    eval set -- $_retain
+    
+    echo "Available commands:"
+    while [ $# -gt 0 ]; do
+        echo "    $1"
+	shift 2
     done
-
-    echo "-1"
 }
 
-function show_version {
-    echo "`basename $0` $VERSION"
-}
-
-function show_usage {
-    echo "Usage: `basename $0` [-c configfile] [-htvV] command";
-}
-
-function show_help {
-    local name=`basename $0`
-
+# Show how to use the script.
+#
+# Args:
+#   None
+show_help() {
     show_version
     show_usage
 
@@ -225,23 +363,213 @@ function show_help {
     echo
     echo "Command:"
     echo "    retention  - Retention level as defined in the config file."
-}
-
-function show_commands {
-    local cnt=${#_retain[@]}
-
-    show_usage
-
     echo
-    echo "Available commands:"
-    for (( i = 0 ; i < cnt ; i=i+2 )); do
-        echo "    ${_retain[$i]}"
-    done
+    
+    show_commands
 }
 
-function verbose {
-    log 4 "$1"
+# Get the retention identifier for a specific retention index.
+#
+# Args:
+#   index: number: The retention identifier to lookup
+# Returns:
+#   Echos the configured retention or none if not found.
+retention() {
+    i=$1
+    i=$((i*2))
+    eval set -- "$_retain"
+    
+    if [ $i -ge 0 ] && [ $i -lt $# ]; then
+	shift $i
+        echo "$1"
+    fi
+    
+    unset i
 }
+
+# Get the number of history items to keep for a specific retention
+# index.
+#
+# Args:
+#   index: number: The retention identifier to lookup the history for
+# Returns:
+#   Echos the configured history items related to the specified retention.
+#   If the index specifies a wrong rentention '-1' is echoed.
+retention_history() {
+    i=$1
+    i=$((i*2+1))
+    eval set -- "$_retain"
+    
+    if [ $i -lt 0 ] || [ $i -gt $# ]; then
+        echo "-1"
+    else
+	shift $i
+        echo $1
+    fi
+    
+    unset i
+}
+
+# Get the index of the retention identifier.
+#
+# Args:
+#   retention: string: The retention identifier to lookup
+# Returns:
+#   Echos the index back. If the retention identifier is not found
+#   '-1' will be echoed.
+retention_index() {
+    retention=$1
+    eval set -- "$_retain"
+    
+    i=0
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "$retention" ]; then
+	    echo "$i"
+	    unset i retention
+	    return
+	fi
+	i=$((i+1))
+	shift 2
+    done
+
+    unset i retention
+    echo "-1"
+}
+
+
+#function rremove {
+#    local args="${_rm_args} $(verbose "$_rm_verbose_arg")"
+#
+#    message "Remove '$1'"
+#    rexecute "if [[ -e \"$1\" ]]; then $_rm $args \"$1\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+#}
+
+#rrename {
+#    local args="${_mv_args} $(verbose "$_mv_verbose_arg")"
+#
+#    message "Rename '$1' to '$2'"
+#    rexecute "if [[ -e \"$1\" ]]; then $_mv $args \"$1\" \"$2\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
+#}
+
+# Rotate the created backups from 0 up to the associated history.
+#
+# Args:
+#   index: number: The retention identifier to rotate
+# Returns:
+#   None.
+rotate() {
+    retention=$(retention $1)
+    history=$(retention_history $1)
+
+    info "Rotating $retention backups"
+    rremove "${_snapshot_root}/${retention}.$((--history))"
+    while [ $history -gt 0 ]; do
+        rrename "${_snapshot_root}/${retention}.$((--history))" "${_snapshot_root}/${retention}.$((history + 1))"
+    done
+
+    unset retention history
+}
+
+# Create a snapshot of the local client to a remote server.
+#
+# Args:
+#   index: number: The retention identifier to create a snapshot for.
+# Returns:
+#   None
+snapshot() {
+    retention=$(retention $1)
+    date=$2
+    
+    rcopy "${_snapshot_root}/${retention}.1" "${_snapshot_root}/${retention}.0"
+    rmkdir "${_snapshot_root}/${retention}.0"
+
+    eval set -- "$_backup"
+    while [ $# -gt 0 ]; do
+        synch "$1" "${_backup_server}:${_snapshot_root}/${retention}.0$2" "$3"
+        shift 3
+    done
+
+    rtouch "${_snapshot_root}/${retention}.0" "${date}"
+
+    unset retention
+}
+
+# Propagate the previous retention level up to the specified level.
+#
+# Args:
+#   index: number: The retention identifier to rotate
+# Returns:
+#   None
+propagate() {
+    retention=$(retention $1)
+    prev_retention=$(retention $(($1-1)))
+    history=$(retention_history $(($1-1)))
+
+    rrename "${_snapshot_root}/${prev_retention}.$((history - 1))" "${_snapshot_root}/${retention}.0"
+
+    unset retention prev_retention history
+}
+
+# Backup the identified retention level.
+#
+# Args:
+#   index: number: The retention identifier to rotate.
+#   date: string: The date the backup is initiated.
+# Returns:
+#   None
+archive() {
+    if [ $1 = 0 ]; then
+        snapshot $1 $2
+    else
+        propagate $1
+    fi
+}
+
+# The scripts main method.
+#
+# Args:
+#   None
+# Returns:
+#   None
+main() {
+    _retention_index=$(retention_index $_command)
+    _date=$($_date_cmd)
+
+    if [ $_help = $PSNAPSHOT_TRUE ]; then
+        show_help;
+	quit
+    elif [ $_version = $PSNAPSHOT_TRUE ]; then
+        show_version
+	quit
+    elif [ $_retention_index -eq -1 ]; then
+        show_commands
+	bail ""
+    fi
+
+    if [ $_verbose -gt 0 ]; then
+        _loglevel=$_verbose
+    fi
+
+    info "Taking '${_command}' snapshot"
+    rotate ${_retention_index}
+    archive ${_retention_index} ${_date}
+}
+
+# Do not execute if we're testing
+if [ -z ${SHUNIT_VERSION:-} ]; then
+   main
+fi
+
+
+# Main script
+########
+#exit 0
+
+: <<'EOF'
+
+
+_date=$(date +%Y%m%d%H%M.%S)
+
 
 function enable_test {
     if [[ $_test = 1 ]]; then
@@ -305,19 +633,6 @@ function rmkdir {
     rexecute "if [[ ! -e \"$1\" ]]; then $_mkdir $args \"$1\"; else echo \"$(verbose "'$1' already exist")\"; fi"
 }
 
-function rremove {
-    local args="${_rm_args} $(verbose "$_rm_verbose_arg")"
-
-    message "Remove '$1'"
-    rexecute "if [[ -e \"$1\" ]]; then $_rm $args \"$1\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
-}
-
-function rrename {
-    local args="${_mv_args} $(verbose "$_mv_verbose_arg")"
-
-    message "Rename '$1' to '$2'"
-    rexecute "if [[ -e \"$1\" ]]; then $_mv $args \"$1\" \"$2\"; else echo \"$(verbose "'$1' doesn't exist")\"; fi"
-}
 
 function rtouch {
     message "Set date of '$1' to '$2'"
@@ -346,80 +661,5 @@ function synch {
     lexecute --force "$_rsync" "${opts[@]}"
 }
 
-function rotate {
-    local retention=$1
-    local history=$(($2 - 1))
 
-    rremove "${_snapshot_root}/${retention}.${history}"
-    for (( i = $((history - 1)); i >= 0; i-- )); do
-        rrename "${_snapshot_root}/${retention}.${i}" "${_snapshot_root}/${retention}.$((i + 1))"
-    done
-}
-
-function propagate {
-    local retention=$(retention $1)
-    local prev_retention=$(retention $1-2)
-    local history=$(history $1-2)
-
-    rrename "${_snapshot_root}/${prev_retention}.$((history - 1))" "${_snapshot_root}/${retention}.0"
-}
-
-function snapshot {
-    local retention=$1
-    rcopy "${_snapshot_root}/${retention}.1" "${_snapshot_root}/${retention}.0"
-    rmkdir "${_snapshot_root}/${retention}.0"
-
-    local backups=${#_backup[@]}
-    for (( i = 0 ; i < backups ; i=i+3 )); do
-        synch "${_backup[$i]}" "${_backup_server}:${_snapshot_root}/${retention}.0${_backup[$i+1]}" "${_backup[$i+2]}"
-    done
-
-    rtouch "${_snapshot_root}/${retention}.0" "${_date}"
-}
-
-#
-# Start main
-#
-set -f
-
-while getopts ":c:htvV" opt; do
-    case "$opt" in
-        "c") _configfile=$OPTARG;;
-        "h") show_help; exit 0;;
-        "t") _test=1;;
-        "v") _verbosity=$(($_verbosity + 1));;
-        "V") show_version; exit 0;;
-        "?") bail "Unknown option $OPTARG";;
-        ":") bail "No argument value for option $OPTARG";;
-        *)   bail "Unknown error while processing options";;
-    esac
-done
-
-shift $((OPTIND-1))
-if (($# != 1)); then
-    show_usage
-    exit 1;
-fi
-
-source $_configfile
-
-_command=$1
-_retention_index=$(retention_index ${_command});
-
-if [[ ${_retention_index} < 0 ]]; then
-    show_commands
-    exit 1;
-fi
-
-_retention=$(retention $_retention_index)
-_history=$(history $_retention_index)
-
-info "Taking '${_retention}' snapshot"
-rotate ${_retention} ${_history}
-if [[ $_retention_index = 0 ]]; then
-    snapshot $_retention
-else
-    propagate $_retention_index
-fi
-
-set +f
+EOF;
