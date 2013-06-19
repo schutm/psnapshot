@@ -12,87 +12,91 @@ set +o errexit +o nounset
 set +f
 
 oneTimeSetUp() {
+    testdir=$(mktemp -d)
+    
+    cmd_ssh             "eval"
+    cmd_ssh_args        ""
+    cmd_cp_verbose_arg  ""
+    cmd_mkdir_verbose_arg  ""
+    cmd_mv_verbose_arg  ""
+    cmd_rm_verbose_arg  ""
+
+    backup_server ""
+
     loglevel        0
-    backup_server   localhost
-    snapshot_root   /root
+    snapshot_root   $testdir/tgt
 
-    retain hourly   6
-    retain daily    7
-    retain weekly   4
-    retain monthly  6
+    retain retain0   3
+    retain retain1   2
 
-    backup /etc/        /
-    backup /home/       /   extra,args
+    backup $testdir/src        tgt
 }
 
-test_retain() {(
-    assertEquals "Index of 'quaterly' retention" \
-        -1 "$(retention_index quaterly)"
-    assertEquals "Index of 'weekly' retention" \
-        2 "$(retention_index weekly)"
+initDir() {
+    [ -e $1 ] || mkdir -p $1
 
-    assertEquals "History of retention '4' (not specified)" \
-        -1 "$(retention_history 4)"
-    assertEquals "History of retention '2' (weekly)" \
-        4 "$(retention_history 2)"
-	
-    assertEquals "Retention identifier of retention '4' (not specified)" \
-        "" "$(retention 4)"
-    assertEquals "Retention identifier of retention '2' (weekly)" \
-        "weekly" "$(retention 2)"
-)}
+    touch $1/$2
+}
+
+setUp() {
+    initDir $testdir/src            src.orig
+    initDir $testdir/tgt/retain0.0  file0.0
+    initDir $testdir/tgt/retain0.1  file0.1
+    initDir $testdir/tgt/retain0.2  file0.2
+    initDir $testdir/tgt/retain1.0  file1.0
+    initDir $testdir/tgt/retain1.1  file1.1
+}
+
+tearDown() {
+    rm -rf $testdir/src
+    rm -rf $testdir/tgt/retain0.0
+    rm -rf $testdir/tgt/retain0.1
+    rm -rf $testdir/tgt/retain0.2
+    rm -rf $testdir/tgt/retain1.0
+    rm -rf $testdir/tgt/retain1.1
+}
+
+oneTimeTearDown() {
+    rm -rf $testdir
+}
 
 test_rotate() {(
-    eval "rremove() { assertEquals 'Remove last backup' '/root/weekly.3' \"\$1\"; }"
-    eval "cnt=$(($(retention_history 2)-1));                                              \
-          rrename() {                                                                      \
-              assertEquals 'Rename last backup to'   \"/root/weekly.\$((cnt--))\" \"\$2\"; \
-              assertEquals 'Rename last backup from' \"/root/weekly.\$((cnt))\"   \"\$1\"; \
-	  }"
-    rotate 2
+    rotate 0
+
+    assertTrue "First retention became second retention" \
+	"[ -e "$testdir/tgt/retain0.1" ] && [ -e "$testdir/tgt/retain0.1/file0.0" ]"
+    assertFalse "First retention is unavailable" \
+	"[ -e "$testdir/tgt/retain0.0" ]"
 )}
 
 test_propagate() {(
-    eval "rrename() {                                                             \
-              assertEquals 'Rename last backup to'   \"/root/weekly.0\"  \"\$2\"; \
-              assertEquals 'Rename last backup from' \"/root/daily.6\"   \"\$1\"; \
-	  }"
-    propagate 2
+    # Create space for the propagation
+    rm -rf $testdir/tgt/retain1.0
+
+    propagate 1
+    assertFalse "First retention is unavailable" \
+        "[ -e "$testdir/tgt/retain0.2" ]" 
+    assertTrue "First retention is propegated to the second retention" \
+        "[ -e "$testdir/tgt/retain1.0/file0.2" ]" 
 )}
 
 test_snapshot() {(
-    eval "rcopy() {                                                            \
-              assertEquals 'Target file name'   \"/root/hourly.0\"  \"\$2\";                   \
-              assertEquals 'Original file name' \"/root/hourly.1\"   \"\$1\";                  \
-	  }"
-    eval "rmkdir() {                                                             \
-              assertEquals 'Remove file name'   \"/root/hourly.0\"  \"\$1\";                   \
-	  }"
-    eval "rtouch() {                                                             \
-              assertEquals 'Touching file name'   \"/root/hourly.0\"  \"\$1\"; \
-              assertEquals 'Touching to date' \"20130228140538.30\"   \"\$2\"; \
-	  }"
-    eval "src='/etc/'; tgt='localhost:/root/hourly.0/'; opt='';                            \
-           synch() {                                                             \
-              assertEquals 'Synching from source'   \"\$src\"   \"\$1\"; \
-              assertEquals 'Synching to target'     \"\$tgt\"   \"\$2\"; \
-              assertEquals 'Synching options'       \"\$opt\"   \"\$3\"; \
-	      src='/home/'; tgt='localhost:/root/hourly.0/'; opt='extra,args';
-	  }"
+    # Create space for the snapshot
+    rm -rf $testdir/tgt/retain0.0
 
-    snapshot 0 "20130228140538.30"
+    snapshot 0 "200001011111.11"
+    assertTrue "Snapshot of source is created" \
+        "[ -e "$testdir/tgt/retain0.0/tgt/$testdir/src/src.orig" ]"     
 )}
 
 test_archive() {(
-    eval "propagate() {                                                             \
-              assertEquals 'Propagate'   4  \$1; \
-	  }"
-    eval "snapshot() {                                                             \
-              assertEquals 'Snapshot'   0   \$1; \
-	  }"
+    eval "snapshot()  { echo 'snapshot';  }"
+    eval "propagate() { echo 'propagate'; }"
 
-    archive 0
-    archive 4
+    assertEquals "Snapshot created for first retention" \
+	"snapshot" "$(archive 0)"
+    assertEquals "Propagation performed for second retention" \
+	"propagate" "$(archive 1)"
 )}
 
 test_log() {(

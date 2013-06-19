@@ -30,6 +30,17 @@ test_in_list() {(
         "in_list 1 4 3 2"
 )}
 
+test_add_to_list() {(
+    assertBail add_to_list 0
+
+    add_to_list test arg1
+    add_to_list test 'arg 1' 'arg 2'
+    add_to_list test 'arg 1' 'arg 2' arg/3 "arg'4'"
+
+    assertEquals "Add to list" \
+        "arg1 'arg 1' 'arg 2' 'arg 1' 'arg 2' arg/3 arg\'4\'" "${test}"
+)}
+
 test_create_scalar_dsl() {(
     assertBail create_scalar_dsl 1
     assertBail create_scalar_dsl 3
