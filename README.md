@@ -20,7 +20,7 @@ benefits of rsnapshot are kept as well:
 Installation
 ------------
 
-=== Manually ===
+### Manually ###
 1. Make sure you have to the latest version downloaded
      * [Download the latest release](https://github.com/schutm/psnapshot/zipball/master).
      * Clone the repo:
@@ -32,7 +32,7 @@ Installation
 5. Modify `/etc/psnapshot.conf` to reflect your preferences.
 6. Add a few crontab entries (see crontab.example for an example setup).
 
-=== Automatically ===
+### Automatically ###
 1. Make sure you have to the latest version downloaded
      * [Download the latest release](https://github.com/schutm/psnapshot/zipball/master).
      * Clone the repo:
