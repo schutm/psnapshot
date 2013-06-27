@@ -84,7 +84,8 @@ add_to_list() {
 	else
             while ipart=${item%%\'*}; do
                 if case ${ipart} in
-                    *[^-+=~/:.0-9_a-zA-Z]*) false;;
+                    *[-+=~/:.0-9_a-zA-Z]*) true;;
+                    *) false;;
                 esac then list=${list:-}${ipart}
                 else list="${list:-}'${ipart}'"
                 fi
