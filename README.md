@@ -1,4 +1,6 @@
-﻿psnapshot
+﻿Current buildstatus: [![Build Status](https://travis-ci.org/schutm/psnapshot.png)](https://travis-ci.org/schutm/psnapshot)
+
+psnapshot
 =========
 psnapshot is a filesystem snapshot utility for making backups of local
 and remote systems—much like [rsnapshot](http://www.rsnapshot.org/).
