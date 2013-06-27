@@ -628,7 +628,7 @@ rexecute() {
         [ -n "$_backup_server" ] && add_to_list cmd $_backup_server
 	add_to_list cmd "$@"
 
-        if [ -e "/dev/pts/ptmx" -a -c "/dev/pts/ptmx"  ]; then
+        if [ -r "/dev/pts/ptmx" -a -c "/dev/pts/ptmx"  ]; then
             ( enable_command_log; eval "${cmd} < /dev/pts/ptmx" )
         else
             ( enable_command_log; eval "${cmd}" )
