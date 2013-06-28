@@ -655,7 +655,7 @@ rotate() {
     rexecute "$(remove "$src")"
     while [ $history -gt 0 ]; do
 	tgt="${_snapshot_root}/${retention}.${history}"
-        history=$(($history-1)
+        history=$(($history-1))
         src="${_snapshot_root}/${retention}.${history}"
 
         message "Rename '$src' to '$tgt'"
