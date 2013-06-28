@@ -646,16 +646,17 @@ rexecute() {
 #   None.
 rotate() {
     retention=$(retention $1)
-    history=$(retention_history $1)
+    history=$(($(retention_history $1)-1))
 
     info "Rotating $retention backups"
 
-    src="${_snapshot_root}/${retention}.$((--history))"
+    src="${_snapshot_root}/${retention}.${history}"
     message "Remove '$src'"
     rexecute "$(remove "$src")"
     while [ $history -gt 0 ]; do
-	tgt="${_snapshot_root}/${retention}.$((history))"
-        src="${_snapshot_root}/${retention}.$((--history))"
+	tgt="${_snapshot_root}/${retention}.${history}"
+        history=$(($history-1)
+        src="${_snapshot_root}/${retention}.${history}"
 
         message "Rename '$src' to '$tgt'"
         rexecute $(rename "$src" "$tgt")
