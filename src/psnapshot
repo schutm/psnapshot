@@ -749,7 +749,7 @@ main() {
         show_version
 	quit
     elif [ $_retention_index -eq -1 ]; then
-        show_commands
+        show_retentions
 	bail ""
     fi
 
