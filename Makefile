@@ -31,6 +31,7 @@ all:
 	@echo "  sysconfdir=DIR  install system configuration files in DIR [PREFIX/etc => $(prefix)/etc]"
 	@echo
 	@echo "Targets:"
+	@echo "  bashisms            check for bashisms"	
 	@echo "  clean               clean build left overs"	
 	@echo "  dist                create a distribution"	
 	@echo "  install             install all files"
@@ -41,7 +42,7 @@ all:
 	@echo "  uninstall-script    uninstall only the script"
 	@echo "  uninstall-man       uninstall only the man page"
 	@echo "  uninstall-examples  uninstall only the examples"	
-	@echo "  tests               execute all tests"	
+	@echo "  tests               check for bashisms and execute all tests"	
 	@for t in $(TESTS); do printf "  %-19s execute tests for %s\\n" $$t $${t#test-}; done
 
 clean:
@@ -99,5 +100,10 @@ test-%:
 	@echo "===> Testing $*"
 	@cd $(TEST_DIR) && $(TEST_EXEC) $*.sh
 
-tests: $(TESTS)
+bashisms:
+	@echo "===> Testing for bashisms"
+	@$(TEST_DIR)/checkbashisms.pl -n   \
+		$(SRC_DIR)/$(PROG)        \
+		$(filter-out %.pl, $(wildcard $(TEST_DIR)/*))
 
+tests: bashisms $(TESTS)
