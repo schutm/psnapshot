@@ -750,10 +750,10 @@ archive() {
 main() {
     _retention_index=$(retention_index ${_command})
 
-    if [ $_help = $PSNAPSHOT_TRUE ]; then
+    if [ $_help -eq $PSNAPSHOT_TRUE ]; then
         show_help;
 	quit
-    elif [ $_version = $PSNAPSHOT_TRUE ]; then
+    elif [ $_version -eq $PSNAPSHOT_TRUE ]; then
         show_version
 	quit
     elif [ $_retention_index -eq -1 ]; then
