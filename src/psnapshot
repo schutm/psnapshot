@@ -11,6 +11,16 @@ PSNAPSHOT_TRUE=0
 PSNAPSHOT_BAIL=1
 PSNAPSHOT_SUCCESS=0
 
+# Print a message to stderr.
+#
+# Args:
+#   message: string: Message to print to stderr.
+# Returns:
+#   integer: success (TRUE/FALSE constant).
+error() {
+    printf "${1:-}\n" >&2
+}
+
 # Bails out after printing an error message.
 #
 # Args:
@@ -20,7 +30,7 @@ PSNAPSHOT_SUCCESS=0
 # Returns:
 #   Never returns.
 bail() {
-    printf "${1-Error occurred, bailing out}\n" >&2
+    [ -n "${1:-}" ] && error "$1"
     exit $PSNAPSHOT_BAIL
 }
 
@@ -262,7 +272,7 @@ parse_args() {
 	case "$1" in
 	    --) shift; break;;
 	    -c) if [ $# -eq 1 ] || [ "$2" = "--" ]; then
-	            echo "No argument value for option -c"
+	            error "No argument value for option -c"
 		    return $PSNAPSHOT_FALSE
 		else
 		    _configfile="$2"
@@ -273,7 +283,7 @@ parse_args() {
 		     -t*) _test=$PSNAPSHOT_TRUE;;
                      -v*) _verbose=$(( $_verbose + 1 ));;
                      -V*) _version=$PSNAPSHOT_TRUE;;
-	              -*) echo "Unknown option '-$(expr $1 : -\\\(.\\\))' while processing options"
+	              -*) error "Illegal option '-$(expr $1 : -\\\(.\\\))'"
 		          return $PSNAPSHOT_FALSE;;
 		esac
 		opt=$(expr $1 : -.\\\(.*\\\))
@@ -285,7 +295,7 @@ parse_args() {
     done
 
     if [ $# -gt 1 ]; then
-        echo "To many commands given"
+        error "Too many commands given"
 	return $PSNAPSHOT_FALSE
     fi
 
@@ -297,9 +307,7 @@ parse_args() {
 # Parse args & load configuration if we're not unit-testing
 ###########################################################
 if [ -z ${SHUNIT_VERSION:-} ]; then
-    error=eval parse_args $@
-    [ $? -eq $PSNAPSHOT_TRUE ] || bail "$error"
-    unset error
+    parse_args $@ || bail
 
     # These functions should not be available in the configuration
     unset -f create_cmd_dsl create_scalar_dsl create_array_dsl parse_args
@@ -750,7 +758,7 @@ main() {
 	quit
     elif [ $_retention_index -eq -1 ]; then
         show_retentions
-	bail ""
+	bail
     fi
 
     if [ $_verbose -gt 0 ]; then
