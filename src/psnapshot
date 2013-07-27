@@ -11,16 +11,6 @@ PSNAPSHOT_TRUE=0
 PSNAPSHOT_BAIL=1
 PSNAPSHOT_SUCCESS=0
 
-# Print a message to stderr.
-#
-# Args:
-#   message: string: Message to print to stderr.
-# Returns:
-#   integer: success (TRUE/FALSE constant).
-error() {
-    printf "${1:-}\n" >&2
-}
-
 # Bails out after printing an error message.
 #
 # Args:
