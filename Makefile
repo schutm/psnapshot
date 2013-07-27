@@ -42,7 +42,7 @@ all:
 	@echo "  uninstall-script    uninstall only the script"
 	@echo "  uninstall-man       uninstall only the man page"
 	@echo "  uninstall-examples  uninstall only the examples"	
-	@echo "  tests               check for bashisms and execute all tests"	
+	@echo "  test                check for bashisms and execute all tests"	
 	@for t in $(TESTS); do printf "  %-19s execute tests for %s\\n" $$t $${t#test-}; done
 
 clean:
@@ -106,4 +106,4 @@ bashisms:
 		$(SRC_DIR)/$(PROG)        \
 		$(filter-out %.pl, $(wildcard $(TEST_DIR)/*))
 
-tests: bashisms $(TESTS)
+test: bashisms $(TESTS)
