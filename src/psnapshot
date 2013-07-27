@@ -3,13 +3,34 @@
 set -o nounset
 set -f
 
-PSNAPSHOT_VERSION=0.9.1
+PSNAPSHOT_VERSION=0.9.2
 
 PSNAPSHOT_FALSE=1
 PSNAPSHOT_TRUE=0
 
 PSNAPSHOT_BAIL=1
 PSNAPSHOT_SUCCESS=0
+
+# Echos a message if the passed level is lower than the log level.
+#
+# Args:
+#   level: integer: Log level to log the message with.
+#   message: string: The message to log.
+log() {
+    if [ $1 -le $_loglevel ]; then
+        printf "%s\n" "$2"
+    fi
+}
+
+# Convenience functions to log a message with a certain level.
+#
+# Args:
+#   message: string: The message to log.
+error()   { log 0 "$*" >&2;   }
+info()    { log 1 "$*";	      }
+message() { log 2 "  $*";     }
+verbose() { log 3 "    $*";   }
+debug()   { log 4 "      $*"; }
 
 # Bails out after printing an error message.
 #
@@ -308,28 +329,6 @@ if [ -z ${SHUNIT_VERSION:-} ]; then
     fi
 fi
 
-
-# Echos a message if the passed level is lower than the log level.
-#
-# Args:
-#   level: integer: Log level to log the message with.
-#   message: string: The message to log.
-log() {
-    if [ $1 -le $_loglevel ]; then
-        echo "$2"
-    fi
-}
-
-# Convenience functions to log a message with a certain level.
-#
-# Args:
-#   message: string: The message to log.
-error()   { echo "$*" >&2;    }
-info()    { log 1 "$*";	      }
-message() { log 2 "  $*";     }
-verbose() { log 3 "    $*";   }
-debug()   { log 4 "      $*"; }
-
 # Enable the command logging if the verbosity level is sufficient.
 #
 # Args:
@@ -345,7 +344,7 @@ enable_command_log() {
 # Args:
 #   None
 show_version() {
-    echo "$(basename $0) $PSNAPSHOT_VERSION"
+    printf "%s %s\n" "$(basename $0)" "$PSNAPSHOT_VERSION"
 }
 
 # Show the short usage string.
@@ -353,7 +352,7 @@ show_version() {
 # Args:
 #   None
 show_usage() {
-    echo "Usage: $(basename $0) [-c configfile] [-htvV] retention";
+    printf "Usage: %s [-c configfile] [-htvV] retention" "$(basename $0)"
 }
 
 # Show the retention levels as inserted by the configuration.
@@ -363,9 +362,9 @@ show_usage() {
 show_retentions() {
     eval set -- $_retain
 
-    echo "Available retention levels:"
+    printf "Available retention levels:\n"
     while [ $# -gt 0 ]; do
-        echo "    $1"
+        printf "    %s\n" "$1"
 	shift 2
     done
 }
@@ -413,7 +412,7 @@ retention() {
 
     if [ $i -ge 0 ] && [ $i -lt $# ]; then
 	shift $i
-        echo "$1"
+        printf "%s\n" "$1"
     fi
 
     unset i
