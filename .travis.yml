@@ -1,2 +1,2 @@
-language: perl
+language: c
 script: make tests
