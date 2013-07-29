@@ -245,7 +245,7 @@ create_cmd_dsl 'rm'     'rm'     '-rf'        '--verbose'
 create_cmd_dsl 'mkdir'  'mkdir'  '-p -m 755'  '--verbose'
 create_cmd_dsl 'rsync'  'rsync'  '-a --delete --numeric-ids --relative --delete-excluded' \
                                               '--verbose'
-create_cmd_dsl 'date'   'date'   '+%Y%m%d%H%m.%S'  ''
+create_cmd_dsl 'date'   'date'   '+%Y%m%d%H%M.%S'  ''
 create_cmd_dsl 'touch'  'touch'  ''           ''
 create_cmd_dsl 'ssh'    'ssh'    ''           '--verbose'
 
