@@ -45,6 +45,13 @@ Installation
 5. Add a few crontab entries (see crontab.example for an example setup).
 
 
+Backup strategy
+---------------
+A sensible backup strategy for Debian is given at
+http://www.debianhelp.co.uk/rsnapshot.htm. Together with methods to restore
+after a failure.
+
+
 Bug tracker
 -----------
 [Open a new issue](https://github.com/schutm/psnapshot/issues) for bugs
@@ -62,7 +69,7 @@ permits:
 Acknowledgements
 ----------------
 The array (add_to_list) is derived from Push(https://github.com/vaeth/push),
-created by Martin Vath.
+created by Martin Väth.
 
 
 Contributing
