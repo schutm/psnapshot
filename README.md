@@ -1,4 +1,8 @@
-﻿Current buildstatus: [![Build Status](https://travis-ci.org/schutm/psnapshot.png)](https://travis-ci.org/schutm/psnapshot)
+Current buildstatus: [![Build Status](https://travis-ci.org/schutm/psnapshot.png)](https://travis-ci.org/schutm/psnapshot)
+
+Canonical source
+================
+The canonical source of psnapshot is hosted on [gitLab.com](https://gitlab.com/schutm/psnapshot).
 
 psnapshot
 =========
